@@ -1,0 +1,10 @@
+{
+  "ConnectionDefinition": {
+    "base_url": "https://localhost:5000",
+    "client_id": "blackbird-local",
+    "client_secret": "123",
+    "username": "admin",
+    "password": "123"
+  },
+  "TestFolder": "TestFiles"
+}
