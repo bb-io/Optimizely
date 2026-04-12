@@ -6,7 +6,7 @@
         <Nullable>enable</Nullable>
         <Product>Optimizely [Beta]</Product>
         <Description>Optimizely Content Management System (CMS) is a high-performance, SaaS-based platform that enables marketers and developers to create, manage, and deliver personalized, multi-channel digital experiences. Formerly Episerver, it combines a user-friendly editorial interface with flexible headless capabilities, robust APIs, and built-in AI tools for optimized content delivery.</Description>
-        <Version>1.0.0</Version>
+        <Version>1.0.1</Version>
         <AssemblyName>Apps.Optimizely</AssemblyName>
     </PropertyGroup>
 

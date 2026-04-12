@@ -11,6 +11,7 @@ public class Invocable : BaseInvocable
         InvocationContext.AuthenticationCredentialsProviders.ToArray();
 
     protected Client Client { get; }
+    
     public Invocable(InvocationContext invocationContext) : base(invocationContext)
     {
         Client = new(Creds);
