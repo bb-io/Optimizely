@@ -37,8 +37,8 @@ The app validates the connection by requesting an access token from `/api/episer
 ### Content
 
 - **Search content** returns direct child content items below the selected root content ID. If no root is provided, the app searches under content ID `1`. You can optionally filter the results in memory by `Name contains`.
-- **Download content** downloads the selected content item from `/api/episerver/v3.0/contentmanagement/{contentId}` and converts the selected localizable fields into a Blackbird interoperable HTML file.
-- **Upload content** accepts a translated `.html`, `.xlf`, or `.xliff` file and patches the selected language variant in Optimizely.
+- **Download content** downloads the selected content item from `/api/episerver/v3.0/contentmanagement/{contentId}` and converts the selected localizable fields into a Blackbird interoperable HTML file. You can also choose reference fields so the linked content entries are embedded into the exported file.
+- **Upload content** accepts a translated `.html`, `.xlf`, or `.xliff` file and patches the selected language variant in Optimizely. Reference entries are updated after the main content item. If a reference update fails, the action returns a partial-failure result instead of throwing for the entire upload.
 
 ### Languages
 

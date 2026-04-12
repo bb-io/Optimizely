@@ -12,7 +12,6 @@ public class ContentDataSourceHandler(InvocationContext invocationContext) : Inv
         var contentItems = await service.SearchContentAsync("1", context.SearchString, cancellationToken);
 
         return contentItems
-            .Take(20)
             .Select(item => new DataSourceItem(item.ContentId, $"{item.Name} ({item.ContentId})"));
     }
 }

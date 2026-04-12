@@ -1,5 +1,6 @@
 using System.Net.Mime;
 using Apps.Optimizely.Actions;
+using Apps.Optimizely.Api;
 using Apps.Optimizely.Models.Requests;
 using Blackbird.Applications.Sdk.Common.Files;
 using Blackbird.Filters.Transformations;
@@ -53,27 +54,79 @@ public class ActionTests : TestBase
     }
 
     [TestMethod]
+    public async Task Download_content_with_reference_fields_includes_reference_entries()
+    {
+        var actions = new ContentActions(InvocationContext, FileManager);
+
+        var result = await actions.DownloadContent(new DownloadContentRequest
+        {
+            ContentId = "5",
+            Locale = "en",
+            LocalizableFields = ["teaserText.value", "globalNewsPageLink.value", "imageDescription.value", "heading.value", "subHeading.value", "buttonText.value", "text.value"],
+            ReferenceFields = ["globalNewsPageLink", "mainContentArea.value"]
+        });
+
+        var html = FileManager.ReadOutputAsString(result.Content);
+
+        Assert.IsTrue(html.Contains("data-blackbird-state=\"reference-entry\"", StringComparison.OrdinalIgnoreCase));
+        Assert.IsTrue(html.Contains("data-reference-field=\"mainContentArea\"", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public async Task Download_content_with_sv_locale_uses_fallback_reference_source_when_field_is_empty()
+    {
+        var actions = new ContentActions(InvocationContext, FileManager);
+
+        var result = await actions.DownloadContent(new DownloadContentRequest
+        {
+            ContentId = "5",
+            Locale = "sv",
+            LocalizableFields = ["heading.value", "subHeading.value", "buttonText.value", "text.value"],
+            ReferenceFields = ["mainContentArea", "globalNewsPageLink"]
+        });
+
+        var html = FileManager.ReadOutputAsString(result.Content);
+
+        Assert.IsTrue(html.Contains("data-reference-field=\"mainContentArea\"", StringComparison.OrdinalIgnoreCase));
+        Assert.IsTrue(html.Contains("data-content-id=\"36\"", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
     public async Task Upload_content_updates_variant_from_html_file()
     {
         var actions = new ContentActions(InvocationContext, FileManager);
+        var client = new Client(Creds);
         var download = await actions.DownloadContent(new DownloadContentRequest
         {
             ContentId = "5",
             Locale = "en",
-            LocalizableFields = ["teaserText.value"]
+            LocalizableFields = ["teaserText.value", "globalNewsPageLink.value", "imageDescription.value", "heading.value", "subHeading.value", "buttonText.value", "text.value"],
+            ReferenceFields = ["globalNewsPageLink", "mainContentArea.value"]
         });
 
+        var suffix = DateTime.UtcNow.ToString("HHmmss");
         var html = FileManager.ReadOutputAsString(download.Content)
-            .Replace(">Start<", $">Start SV {DateTime.UtcNow:HHmmss}<", StringComparison.Ordinal)
-            .Replace(">Alloy title<", $">Alloy title SV {DateTime.UtcNow:HHmmss}<", StringComparison.Ordinal);
+            .Replace(">Start<", $">Start SV {suffix}<", StringComparison.Ordinal)
+            .Replace(">Alloy - samarbete och projektledning online<", $">Alloy title SV {suffix}<", StringComparison.Ordinal)
+            .Replace(">Wherever you meet!<", $">Wherever you meet SV {suffix}<", StringComparison.Ordinal);
 
         FileManager.WriteInput("optimizely-upload.html", html);
 
-        await actions.UploadContent(new UploadContentRequest
+        var result = await actions.UploadContent(new UploadContentRequest
         {
             Content = new FileReference { Name = "optimizely-upload.html", ContentType = MediaTypeNames.Text.Html },
             Locale = "sv"
         });
+
+        Assert.IsTrue(result.IsSuccessful);
+
+        var mainContent = await client.GetContentAsync("5", "sv");
+        var referenceContent = await client.GetContentAsync("36", "sv");
+
+        Assert.AreEqual($"Start SV {suffix}", mainContent["name"]?.ToString());
+        Assert.IsNotNull(mainContent["mainContentArea"]?["value"]);
+        Assert.IsTrue(mainContent["mainContentArea"]?["value"]?.Any() == true);
+        Assert.AreEqual($"Wherever you meet SV {suffix}", referenceContent["heading"]?["value"]?.ToString());
     }
 
     [TestMethod]

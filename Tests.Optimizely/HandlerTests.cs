@@ -1,4 +1,5 @@
 using Apps.Optimizely.DataSourceHandlers;
+using Apps.Optimizely.Models.Requests;
 using Blackbird.Applications.Sdk.Common.Dynamic;
 using Tests.Optimizely.Base;
 
@@ -26,5 +27,35 @@ public class HandlerTests : TestBase
         var result = (await handler.GetDataAsync(new DataSourceContext { SearchString = "Start" }, CancellationToken.None)).ToList();
 
         Assert.IsTrue(result.Count > 0);
+    }
+
+    [TestMethod]
+    public async Task Field_handler_returns_localizable_paths()
+    {
+        var handler = new FieldDataHandler(
+            InvocationContext,
+            new ContentRequest { ContentId = "5" },
+            new UploadContentRequest());
+
+        var result = (await handler.GetDataAsync(new DataSourceContext(), CancellationToken.None)).ToList();
+
+        Assert.IsTrue(result.Any(item => item.Value == "name"));
+        Assert.IsTrue(result.Any(item => item.Value == "metaTitle.value"));
+        Assert.IsTrue(result.Any(item => item.Value == "metaKeywords.value"));
+    }
+
+    [TestMethod]
+    public async Task Reference_field_handler_returns_reference_paths()
+    {
+        var handler = new ReferenceFieldDataHandler(
+            InvocationContext,
+            new ContentRequest { ContentId = "5" },
+            new UploadContentRequest());
+
+        var result = (await handler.GetDataAsync(new DataSourceContext(), CancellationToken.None)).ToList();
+
+        Assert.IsTrue(result.Any(item => item.Value == "globalNewsPageLink"));
+        Assert.IsTrue(result.Any(item => item.Value == "contactsPageLink"));
+        Assert.IsTrue(result.Any(item => item.Value == "mainContentArea"));
     }
 }

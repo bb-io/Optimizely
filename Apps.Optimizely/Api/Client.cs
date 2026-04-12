@@ -69,6 +69,14 @@ public class Client : BlackBirdRestClient
         await ExecuteWithErrorHandling(request);
     }
 
+    public async Task PutContentAsync(string contentGuid, JObject contentBody, CancellationToken cancellationToken = default)
+    {
+        var request = await CreateAuthenticatedRequestAsync(string.Format(ApiConstants.ContentManagementResource, contentGuid), Method.Put, cancellationToken);
+        request.AddStringBody(contentBody.ToString(Formatting.None), ContentType.Json);
+
+        await ExecuteWithErrorHandling(request);
+    }
+
     public async Task<List<OptimizelyLanguageDto>> GetLanguagesAsync(CancellationToken cancellationToken = default)
     {
         var request = await CreateAuthenticatedRequestAsync(ApiConstants.SiteResource, Method.Get, cancellationToken);

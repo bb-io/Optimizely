@@ -11,4 +11,8 @@ public class RoundtripContentDocument
     public JObject OriginalJson { get; set; } = new();
 
     public IReadOnlyCollection<RoundtripField> Fields { get; set; } = Array.Empty<RoundtripField>();
+
+    public IReadOnlyCollection<RoundtripReferenceField> ReferenceFields { get; set; } = Array.Empty<RoundtripReferenceField>();
+
+    public IReadOnlyCollection<RoundtripReferenceEntryDocument> ReferenceEntries { get; set; } = Array.Empty<RoundtripReferenceEntryDocument>();
 }

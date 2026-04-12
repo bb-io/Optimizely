@@ -1,8 +1,10 @@
 using System.Net.Mime;
 using System.Text;
 using Apps.Optimizely.Html;
+using Apps.Optimizely.Models.Errors;
 using Apps.Optimizely.Models.Requests;
 using Apps.Optimizely.Models.Responses;
+using Apps.Optimizely.Models.Roundtrip;
 using Apps.Optimizely.Services;
 using Apps.Optimizely.Utils;
 using Blackbird.Applications.Sdk.Common;
@@ -38,7 +40,9 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
 
         var content = await service.GetContentAsync(input.ContentId, input.Locale);
         var locale = roundtripService.ResolveLocale(content, input.Locale);
-        var state = roundtripService.CreateState(content, locale, input.LocalizableFields);
+        var references = await service.GetReferenceContentsAsync(content, input.ReferenceFields, locale);
+        var referenceFields = await service.GetReferenceFieldPayloadsAsync(content, input.ReferenceFields);
+        var state = roundtripService.CreateState(content, locale, input.LocalizableFields, referenceFields, references);
         var html = htmlConverter.Convert(state);
 
         var fileName = $"{FileNameSanitizer.Sanitize(state.ContentName, input.ContentId)}_{locale}.html";
@@ -56,7 +60,7 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
 
     [BlueprintActionDefinition(BlueprintAction.UploadContent)]
     [Action("Upload content", Description = "Upload translated Optimizely content from a Blackbird HTML or XLIFF file.")]
-    public async Task UploadContent([ActionParameter] UploadContentRequest input)
+    public async Task<UploadContentOutput> UploadContent([ActionParameter] UploadContentRequest input)
     {
         if (!input.Content.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase) &&
             !input.Content.Name.EndsWith(".xlf", StringComparison.OrdinalIgnoreCase) &&
@@ -94,9 +98,54 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
         var roundtripService = new OptimizelyRoundtripService();
 
         var originalContent = roundtripDocument.OriginalJson;
+        var targetContent = await service.GetContentAsync(roundtripDocument.ContentId, input.Locale);
+        roundtripDocument.ReferenceFields = service.FilterBranchSpecificReferenceFields(targetContent, roundtripDocument.ReferenceFields);
         var language = await service.GetLanguageAsync(originalContent, input.Locale);
         var patch = roundtripService.BuildPatch(roundtripDocument, language);
 
         await Client.PatchContentAsync(roundtripDocument.ContentId, input.Locale, patch);
+
+        var errors = new List<ReferenceUpdateError>();
+        foreach (var referenceEntry in roundtripDocument.ReferenceEntries)
+        {
+            try
+            {
+                var referenceLanguage = await service.GetLanguageAsync(referenceEntry.OriginalJson, input.Locale);
+                var referenceDocument = new RoundtripContentDocument
+                {
+                    ContentId = referenceEntry.ContentId,
+                    OriginalJson = referenceEntry.OriginalJson,
+                    Fields = referenceEntry.Fields
+                };
+
+                if (service.HasLanguage(referenceEntry.OriginalJson, input.Locale))
+                {
+                    var referencePatch = roundtripService.BuildPatch(referenceDocument, referenceLanguage);
+                    await Client.PatchContentAsync(referenceEntry.ContentId, input.Locale, referencePatch);
+                }
+                else
+                {
+                    var contentGuid = referenceEntry.OriginalJson.SelectToken("contentLink.guidValue")?.ToString()
+                                      ?? throw new PluginMisconfigurationException($"Reference entry '{referenceEntry.ContentId}' is missing contentLink.guidValue.");
+                    var createPayload = service.BuildCreateLanguageBranchPayload(referenceEntry.OriginalJson, referenceEntry, input.Locale, referenceLanguage);
+                    await Client.PutContentAsync(contentGuid, createPayload);
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add(new ReferenceUpdateError
+                {
+                    ContentId = referenceEntry.ContentId,
+                    ReferenceField = referenceEntry.ReferenceField,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        return new UploadContentOutput
+        {
+            IsSuccessful = errors.Count == 0,
+            Errors = errors.Count == 0 ? null : errors
+        };
     }
 }
