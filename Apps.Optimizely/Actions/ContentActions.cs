@@ -23,11 +23,24 @@ namespace Apps.Optimizely.Actions;
 public class ContentActions(InvocationContext invocationContext, IFileManagementClient fileManagementClient) : Invocable(invocationContext)
 {
     [BlueprintActionDefinition(BlueprintAction.SearchContent)]
-    [Action("Search content", Description = "Search direct child content items under the specified root content.")]
+    [Action("Search content", Description = "Search content items under the specified root content.")]
     public async Task<List<Models.Entities.ContentItemEntity>> SearchContent([ActionParameter] SearchContentRequest input)
     {
         var service = new OptimizelyContentService(Client);
-        return await service.SearchContentAsync(input.RootContentId, input.NameContains);
+        return await service.SearchContentAsync(new SearchContentFilters
+        {
+            RootContentId = input.RootContentId,
+            ContentReferenceGuid = input.ContentReferenceGuid,
+            ContentType = input.ContentType,
+            NameContains = input.NameContains,
+            CategoryId = input.CategoryId,
+            Locale = input.Locale,
+            PublishedAfter = input.PublishedAfter,
+            PublishedBefore = input.PublishedBefore,
+            IncludeUnpublished = input.IncludeUnpublished,
+            MaxDepth = input.MaxDepth,
+            MaxResults = input.MaxResults
+        });
     }
 
     [BlueprintActionDefinition(BlueprintAction.DownloadContent)]

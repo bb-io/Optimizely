@@ -9,7 +9,14 @@ public class ContentDataSourceHandler(InvocationContext invocationContext) : Inv
     public async Task<IEnumerable<DataSourceItem>> GetDataAsync(DataSourceContext context, CancellationToken cancellationToken)
     {
         var service = new OptimizelyContentService(Client);
-        var contentItems = await service.SearchContentAsync("1", context.SearchString, cancellationToken);
+        var contentItems = await service.SearchContentAsync(new SearchContentFilters
+        {
+            RootContentId = "1",
+            NameContains = context.SearchString,
+            IncludeUnpublished = true,
+            MaxDepth = 5,
+            MaxResults = 50
+        }, cancellationToken);
 
         return contentItems
             .Select(item => new DataSourceItem(item.ContentId, $"{item.Name} ({item.ContentId})"));
