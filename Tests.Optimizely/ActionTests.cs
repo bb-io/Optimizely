@@ -16,7 +16,11 @@ public class ActionTests : TestBase
     {
         var actions = new ContentActions(InvocationContext, FileManager);
 
-        var result = await actions.SearchContent(new SearchContentRequest { NameContains = "Start" });
+        var result = await actions.SearchContent(new SearchContentRequest
+        {
+            RootContentId = "1",
+            NameContains = "Start"
+        });
 
         Assert.IsTrue(result.Any(item => item.Name.Contains("Start", StringComparison.OrdinalIgnoreCase)));
     }

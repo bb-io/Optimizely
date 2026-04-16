@@ -46,7 +46,7 @@ public class Client : BlackBirdRestClient
         return request;
     }
 
-    public async Task<List<OptimizelyContentSummaryDto>> GetChildrenAsync(string rootContentId, CancellationToken cancellationToken = default)
+    public virtual async Task<List<OptimizelyContentSummaryDto>> GetChildrenAsync(string rootContentId, CancellationToken cancellationToken = default)
     {
         var request = await CreateAuthenticatedRequestAsync(string.Format(ApiConstants.ContentChildrenResource, rootContentId), Method.Get, cancellationToken);
         return await ExecuteWithErrorHandling<List<OptimizelyContentSummaryDto>>(request);

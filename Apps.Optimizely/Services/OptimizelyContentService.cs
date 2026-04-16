@@ -2,25 +2,77 @@ using Apps.Optimizely.Api;
 using Apps.Optimizely.Models.Dtos;
 using Apps.Optimizely.Models.Entities;
 using Apps.Optimizely.Models.Roundtrip;
+using Blackbird.Applications.Sdk.Common.Exceptions;
 using Newtonsoft.Json.Linq;
 
 namespace Apps.Optimizely.Services;
 
-public class OptimizelyContentService(Client client)
+public class OptimizelyContentService
 {
-    public async Task<List<ContentItemEntity>> SearchContentAsync(string? rootContentId, string? nameContains, CancellationToken cancellationToken = default)
+    private const int DefaultMaxDepth = 5;
+    private const int ConcurrentFetchLimit = 5;
+    private readonly Client _client;
+
+    public OptimizelyContentService(Client client)
     {
-        var children = await client.GetChildrenAsync(rootContentId ?? "1", cancellationToken);
-        return children
-            .Where(child => string.IsNullOrWhiteSpace(nameContains) ||
-                            (child.Name?.Contains(nameContains, StringComparison.OrdinalIgnoreCase) ?? false))
-            .Select(ContentItemEntity.FromDto)
-            .ToList();
+        _client = client;
+    }
+
+    public async Task<List<ContentItemEntity>> SearchContentAsync(SearchContentFilters filters, CancellationToken cancellationToken = default)
+    {
+        var normalizedFilters = NormalizeFilters(filters);
+        if (normalizedFilters.MaxDepth == 0 || normalizedFilters.MaxResults == 0)
+        {
+            return [];
+        }
+
+        var results = new List<ContentItemEntity>();
+        var visitedIds = new HashSet<int> { normalizedFilters.RootContentId };
+        var currentLevel = new List<int> { normalizedFilters.RootContentId };
+        using var semaphore = new SemaphoreSlim(ConcurrentFetchLimit, ConcurrentFetchLimit);
+
+        for (var depth = 0; depth < normalizedFilters.MaxDepth && currentLevel.Count > 0; depth++)
+        {
+            if (HasReachedMaxResults(results.Count, normalizedFilters.MaxResults))
+            {
+                break;
+            }
+
+            var childBatches = await FetchChildrenAsync(currentLevel, semaphore, cancellationToken);
+            var nextLevel = new List<int>();
+
+            foreach (var child in childBatches.SelectMany(batch => batch))
+            {
+                var childId = child.ContentLink?.Id;
+                if (childId is null || childId <= 0 || !visitedIds.Add(childId.Value))
+                {
+                    continue;
+                }
+
+                if (MatchesFilters(child, normalizedFilters))
+                {
+                    results.Add(ContentItemEntity.FromDto(child));
+                    if (HasReachedMaxResults(results.Count, normalizedFilters.MaxResults))
+                    {
+                        break;
+                    }
+                }
+
+                if (depth + 1 < normalizedFilters.MaxDepth)
+                {
+                    nextLevel.Add(childId.Value);
+                }
+            }
+
+            currentLevel = nextLevel;
+        }
+
+        return TrimResults(results, normalizedFilters.MaxResults);
     }
 
     public async Task<List<LanguageEntity>> GetLanguagesAsync(CancellationToken cancellationToken = default)
     {
-        var languages = await client.GetLanguagesAsync(cancellationToken);
+        var languages = await _client.GetLanguagesAsync(cancellationToken);
         return languages
             .GroupBy(language => language.Name, StringComparer.OrdinalIgnoreCase)
             .Select(group => LanguageEntity.FromDto(group.First()))
@@ -29,7 +81,7 @@ public class OptimizelyContentService(Client client)
     }
 
     public Task<JObject> GetContentAsync(string contentId, string? locale = null, CancellationToken cancellationToken = default)
-        => client.GetContentAsync(contentId, locale, cancellationToken);
+        => _client.GetContentAsync(contentId, locale, cancellationToken);
 
     public async Task<OptimizelyLanguageDto> GetLanguageAsync(JObject content, string locale, CancellationToken cancellationToken = default)
     {
@@ -43,7 +95,7 @@ public class OptimizelyContentService(Client client)
             return existingLanguage;
         }
 
-        var languages = await client.GetLanguagesAsync(cancellationToken);
+        var languages = await _client.GetLanguagesAsync(cancellationToken);
         var siteLanguage = languages.FirstOrDefault(language => language.Name?.Equals(locale, StringComparison.OrdinalIgnoreCase) == true)
                            ?? throw new InvalidOperationException($"Language '{locale}' was not found in Optimizely.");
 
@@ -72,9 +124,9 @@ public class OptimizelyContentService(Client client)
 
             foreach (var referenceId in referenceIds)
             {
-                var referenceSourceContent = await client.GetContentAsync(referenceId, null, cancellationToken);
+                var referenceSourceContent = await _client.GetContentAsync(referenceId, null, cancellationToken);
                 var referenceContent = !string.IsNullOrWhiteSpace(locale) && HasLanguage(referenceSourceContent, locale)
-                    ? await client.GetContentAsync(referenceId, locale, cancellationToken)
+                    ? await _client.GetContentAsync(referenceId, locale, cancellationToken)
                     : referenceSourceContent;
                 referenceContent["blackbirdReferenceField"] = referenceField;
                 references.Add(referenceContent);
@@ -124,7 +176,7 @@ public class OptimizelyContentService(Client client)
             return null;
         }
 
-        return await client.GetContentAsync(contentId, null, cancellationToken);
+        return await _client.GetContentAsync(contentId, null, cancellationToken);
     }
 
     private static JObject? GetReferenceFieldValue(JObject? content, string referenceField)
@@ -238,4 +290,153 @@ public class OptimizelyContentService(Client client)
             "editUrl" or
             "blackbirdReferenceField";
     }
+
+    private async Task<List<OptimizelyContentSummaryDto>[]> FetchChildrenAsync(IEnumerable<int> parentIds, SemaphoreSlim semaphore, CancellationToken cancellationToken)
+    {
+        // Fetch each sibling branch in parallel while keeping the API fan-out bounded.
+        var fetchTasks = parentIds.Select(async parentId =>
+        {
+            await semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                return await _client.GetChildrenAsync(parentId.ToString(), cancellationToken);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        return await Task.WhenAll(fetchTasks);
+    }
+
+    private static NormalizedSearchContentFilters NormalizeFilters(SearchContentFilters filters)
+    {
+        if (string.IsNullOrWhiteSpace(filters.RootContentId) ||
+            !int.TryParse(filters.RootContentId, out var rootContentId) ||
+            rootContentId <= 0)
+        {
+            throw new PluginMisconfigurationException("Root content ID is required and must be a positive integer.");
+        }
+
+        if (filters.MaxDepth is < 0)
+        {
+            throw new PluginMisconfigurationException("Max depth must be zero or greater.");
+        }
+
+        if (filters.MaxResults is < 0)
+        {
+            throw new PluginMisconfigurationException("Max results must be zero or greater.");
+        }
+
+        return new NormalizedSearchContentFilters(
+            rootContentId,
+            filters.ContentReferenceGuid?.Trim(),
+            filters.ContentType?.Trim(),
+            filters.NameContains?.Trim(),
+            filters.CategoryId,
+            filters.Locale?.Trim(),
+            filters.PublishedAfter,
+            filters.PublishedBefore,
+            filters.IncludeUnpublished ?? false,
+            filters.MaxDepth ?? DefaultMaxDepth,
+            filters.MaxResults);
+    }
+
+    private static bool MatchesFilters(OptimizelyContentSummaryDto content, NormalizedSearchContentFilters filters)
+    {
+        if (!string.IsNullOrWhiteSpace(filters.ContentReferenceGuid) &&
+            !string.Equals(content.ContentLink?.GuidValue, filters.ContentReferenceGuid, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filters.ContentType) &&
+            (content.ContentType?.Any(type => type.Equals(filters.ContentType, StringComparison.OrdinalIgnoreCase)) != true))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filters.NameContains) &&
+            (content.Name?.Contains(filters.NameContains, StringComparison.OrdinalIgnoreCase) != true))
+        {
+            return false;
+        }
+
+        if (filters.CategoryId.HasValue &&
+            (content.Category?.Value?.Contains(filters.CategoryId.Value) != true))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filters.Locale) &&
+            (content.ExistingLanguages?.Any(language => language.Name?.Contains(filters.Locale, StringComparison.OrdinalIgnoreCase) == true) != true))
+        {
+            return false;
+        }
+
+        if (filters.PublishedAfter.HasValue &&
+            (!content.StartPublish.HasValue || content.StartPublish.Value < filters.PublishedAfter.Value))
+        {
+            return false;
+        }
+
+        if (filters.PublishedBefore.HasValue &&
+            (!content.StartPublish.HasValue || content.StartPublish.Value > filters.PublishedBefore.Value))
+        {
+            return false;
+        }
+
+        if (!filters.IncludeUnpublished &&
+            !string.Equals(content.Status, "Published", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasReachedMaxResults(int resultCount, int? maxResults)
+        => maxResults.HasValue && resultCount >= maxResults.Value;
+
+    private static List<ContentItemEntity> TrimResults(List<ContentItemEntity> results, int? maxResults)
+        => maxResults.HasValue ? results.Take(maxResults.Value).ToList() : results;
+
+    private sealed record NormalizedSearchContentFilters(
+        int RootContentId,
+        string? ContentReferenceGuid,
+        string? ContentType,
+        string? NameContains,
+        int? CategoryId,
+        string? Locale,
+        DateTime? PublishedAfter,
+        DateTime? PublishedBefore,
+        bool IncludeUnpublished,
+        int MaxDepth,
+        int? MaxResults);
+}
+
+public record SearchContentFilters
+{
+    public string RootContentId { get; init; } = string.Empty;
+
+    public string? ContentReferenceGuid { get; init; }
+
+    public string? ContentType { get; init; }
+
+    public string? NameContains { get; init; }
+
+    public int? CategoryId { get; init; }
+
+    public string? Locale { get; init; }
+
+    public DateTime? PublishedAfter { get; init; }
+
+    public DateTime? PublishedBefore { get; init; }
+
+    public bool? IncludeUnpublished { get; init; }
+
+    public int? MaxDepth { get; init; }
+
+    public int? MaxResults { get; init; }
 }
