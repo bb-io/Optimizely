@@ -1,6 +1,7 @@
 using System.Net.Mime;
 using System.Text;
 using Apps.Optimizely.Html;
+using Newtonsoft.Json.Linq;
 using Apps.Optimizely.Models.Errors;
 using Apps.Optimizely.Models.Requests;
 using Apps.Optimizely.Models.Responses;
@@ -111,12 +112,30 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
         var roundtripService = new OptimizelyRoundtripService();
 
         var originalContent = roundtripDocument.OriginalJson;
-        var targetContent = await service.GetContentAsync(roundtripDocument.ContentId, input.Locale);
+        JObject targetContent;
+        try
+        {
+            targetContent = await service.GetContentAsync(roundtripDocument.ContentId, input.Locale);
+        }
+        catch
+        {
+            targetContent = originalContent;
+        }
         roundtripDocument.ReferenceFields = service.FilterBranchSpecificReferenceFields(targetContent, roundtripDocument.ReferenceFields);
         var language = await service.GetLanguageAsync(originalContent, input.Locale);
-        var patch = roundtripService.BuildPatch(roundtripDocument, language);
 
-        await Client.PatchContentAsync(roundtripDocument.ContentId, input.Locale, patch);
+        if (service.HasLanguage(originalContent, input.Locale))
+        {
+            var patch = roundtripService.BuildPatch(roundtripDocument, language);
+            await Client.PatchContentAsync(roundtripDocument.ContentId, input.Locale, patch);
+        }
+        else
+        {
+            var contentGuid = originalContent.SelectToken("contentLink.guidValue")?.ToString()
+                              ?? throw new PluginMisconfigurationException($"Content '{roundtripDocument.ContentId}' is missing contentLink.guidValue.");
+            var createPayload = service.BuildCreateLanguageBranchPayload(originalContent, roundtripDocument, input.Locale, language);
+            await Client.PutContentAsync(contentGuid, createPayload);
+        }
 
         var errors = new List<ReferenceUpdateError>();
         foreach (var referenceEntry in roundtripDocument.ReferenceEntries)

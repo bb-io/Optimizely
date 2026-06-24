@@ -228,12 +228,19 @@ public class OptimizelyContentService
                 continue;
             }
 
-            if (fieldObject["propertyDataType"]?.ToString() == "PropertyCategory")
+            var propertyDataType = fieldObject["propertyDataType"]?.ToString();
+            if (propertyDataType == "PropertyCategory")
             {
                 continue;
             }
 
-            payload[property.Name] = fieldObject.DeepClone();
+            var value = fieldObject["value"];
+            if (value is null || value.Type == JTokenType.Null)
+            {
+                continue;
+            }
+
+            payload[property.Name] = new JObject { ["value"] = value.DeepClone() };
         }
 
         var patch = new OptimizelyRoundtripService().BuildPatch(new RoundtripContentDocument
@@ -275,9 +282,19 @@ public class OptimizelyContentService
         }
     }
 
+    public JObject BuildCreateLanguageBranchPayload(JObject sourceContent, RoundtripContentDocument document, string locale, OptimizelyLanguageDto language)
+        => BuildCreateLanguageBranchPayload(sourceContent, new RoundtripReferenceEntryDocument
+        {
+            ContentId = document.ContentId,
+            OriginalJson = document.OriginalJson,
+            Fields = document.Fields
+        }, locale, language);
+
     private static bool IsExcludedFromCreatePayload(string propertyName)
     {
         return propertyName is
+            "contentLink" or
+            "language" or
             "existingLanguages" or
             "masterLanguage" or
             "url" or
