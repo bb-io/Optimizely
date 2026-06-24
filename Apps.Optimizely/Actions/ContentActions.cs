@@ -114,9 +114,19 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
         var targetContent = await service.GetContentAsync(roundtripDocument.ContentId, input.Locale);
         roundtripDocument.ReferenceFields = service.FilterBranchSpecificReferenceFields(targetContent, roundtripDocument.ReferenceFields);
         var language = await service.GetLanguageAsync(originalContent, input.Locale);
-        var patch = roundtripService.BuildPatch(roundtripDocument, language);
 
-        await Client.PatchContentAsync(roundtripDocument.ContentId, input.Locale, patch);
+        if (service.HasLanguage(originalContent, input.Locale))
+        {
+            var patch = roundtripService.BuildPatch(roundtripDocument, language);
+            await Client.PatchContentAsync(roundtripDocument.ContentId, input.Locale, patch);
+        }
+        else
+        {
+            var contentGuid = originalContent.SelectToken("contentLink.guidValue")?.ToString()
+                              ?? throw new PluginMisconfigurationException($"Content '{roundtripDocument.ContentId}' is missing contentLink.guidValue.");
+            var createPayload = service.BuildCreateLanguageBranchPayload(originalContent, roundtripDocument, input.Locale, language);
+            await Client.PutContentAsync(contentGuid, createPayload);
+        }
 
         var errors = new List<ReferenceUpdateError>();
         foreach (var referenceEntry in roundtripDocument.ReferenceEntries)

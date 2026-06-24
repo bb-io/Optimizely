@@ -275,9 +275,19 @@ public class OptimizelyContentService
         }
     }
 
+    public JObject BuildCreateLanguageBranchPayload(JObject sourceContent, RoundtripContentDocument document, string locale, OptimizelyLanguageDto language)
+        => BuildCreateLanguageBranchPayload(sourceContent, new RoundtripReferenceEntryDocument
+        {
+            ContentId = document.ContentId,
+            OriginalJson = document.OriginalJson,
+            Fields = document.Fields
+        }, locale, language);
+
     private static bool IsExcludedFromCreatePayload(string propertyName)
     {
         return propertyName is
+            "contentLink" or
+            "language" or
             "existingLanguages" or
             "masterLanguage" or
             "url" or
