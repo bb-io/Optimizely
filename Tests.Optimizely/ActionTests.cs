@@ -172,6 +172,36 @@ public class ActionTests : TestBase
     }
 
     [TestMethod]
+    public async Task Upload_xliff_creates_sv_branch_for_content_2105()
+    {
+        var actions = new ContentActions(InvocationContext, FileManager);
+        var client = new Client(Creds);
+
+        var result = await actions.UploadContent(new UploadContentRequest
+        {
+            Content = new FileReference { Name = "Landing-page-2_en.html.xlf", ContentType = "application/xliff+xml" },
+            Locale = "sv"
+        });
+
+        Console.WriteLine($"IsSuccessful: {result.IsSuccessful}");
+        if (result.Errors?.Any() == true)
+        {
+            foreach (var error in result.Errors)
+                Console.WriteLine($"  Error [{error.ContentId}]: {error.Message}");
+        }
+
+        Assert.IsTrue(result.IsSuccessful);
+
+        var svContent = await client.GetContentAsync("2105", "sv");
+        Assert.IsNotNull(svContent["metaTitle"]?["value"], "metaTitle should be present in sv branch");
+        Assert.IsNotNull(svContent["teaserText"]?["value"], "teaserText should be present in sv branch");
+        Assert.IsNotNull(svContent["metaDescription"]?["value"], "metaDescription should be present in sv branch");
+
+        Console.WriteLine($"sv metaTitle: {svContent["metaTitle"]?["value"]}");
+        Console.WriteLine($"sv teaserText: {svContent["teaserText"]?["value"]}");
+    }
+
+    [TestMethod]
     public void Valid_xliff_can_be_converted_back_to_html()
     {
         var repoRoot = Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory)!.Parent!.Parent!.Parent!.Parent!.FullName;

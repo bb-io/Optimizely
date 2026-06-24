@@ -1,6 +1,7 @@
 using System.Net.Mime;
 using System.Text;
 using Apps.Optimizely.Html;
+using Newtonsoft.Json.Linq;
 using Apps.Optimizely.Models.Errors;
 using Apps.Optimizely.Models.Requests;
 using Apps.Optimizely.Models.Responses;
@@ -111,7 +112,15 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
         var roundtripService = new OptimizelyRoundtripService();
 
         var originalContent = roundtripDocument.OriginalJson;
-        var targetContent = await service.GetContentAsync(roundtripDocument.ContentId, input.Locale);
+        JObject targetContent;
+        try
+        {
+            targetContent = await service.GetContentAsync(roundtripDocument.ContentId, input.Locale);
+        }
+        catch
+        {
+            targetContent = originalContent;
+        }
         roundtripDocument.ReferenceFields = service.FilterBranchSpecificReferenceFields(targetContent, roundtripDocument.ReferenceFields);
         var language = await service.GetLanguageAsync(originalContent, input.Locale);
 

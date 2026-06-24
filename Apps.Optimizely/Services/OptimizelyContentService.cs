@@ -228,12 +228,19 @@ public class OptimizelyContentService
                 continue;
             }
 
-            if (fieldObject["propertyDataType"]?.ToString() == "PropertyCategory")
+            var propertyDataType = fieldObject["propertyDataType"]?.ToString();
+            if (propertyDataType == "PropertyCategory")
             {
                 continue;
             }
 
-            payload[property.Name] = fieldObject.DeepClone();
+            var value = fieldObject["value"];
+            if (value is null || value.Type == JTokenType.Null)
+            {
+                continue;
+            }
+
+            payload[property.Name] = new JObject { ["value"] = value.DeepClone() };
         }
 
         var patch = new OptimizelyRoundtripService().BuildPatch(new RoundtripContentDocument
