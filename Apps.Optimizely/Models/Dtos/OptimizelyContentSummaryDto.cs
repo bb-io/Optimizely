@@ -35,5 +35,5 @@ public class OptimizelyContentSummaryDto
 public class OptimizelyCategoryDto
 {
     [JsonProperty("value")]
-    public List<int>? Value { get; set; }
+    public List<object>? Value { get; set; }
 }
