@@ -7,4 +7,5 @@ public static class ApiConstants
     public const string ContentChildrenResource = "/api/episerver/v3.0/content/{0}/children";
     public const string ContentManagementResource = "/api/episerver/v3.0/contentmanagement/{0}";
     public const string Scope = "epi_content_management roles";
+    public const string ScopeForClientCredentials = "epi_content_management";
 }

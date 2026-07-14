@@ -62,7 +62,8 @@ public void ConfigureServices(IServiceCollection services)
                 }
             });
 
-            // The app signs in with a CMS username/password, so allow that flow.
+            // Only needed for the "Username & password" connection type.
+            // If you use the "Client credentials" connection type, remove this line.
             options.AllowResourceOwnerPasswordFlow = true;
         });
 }
@@ -76,17 +77,31 @@ After deploying this change, give Blackbird the four values:
 
 > **Note:** the exact property names can vary slightly between versions of the `EPiServer.OpenIDConnect` and `EPiServer.ContentManagementApi` packages, so adjust to match your installed version. Keep the Client secret out of source control (use environment variables or a secret store).
 
+### Does this app work if my Optimizely uses Opti ID?
+
+Yes. Opti ID is Optimizely's single sign-on for **people** — it changes how your editors log in to the CMS in the browser, but it does not provide credentials for integrations like Blackbird, and nothing about it needs to change.
+
+If your instance uses Opti ID, keep the following in mind:
+
+- You cannot connect Blackbird with an Opti ID account. Opti ID has no application (machine-to-machine) login, so the app authenticates against the CMS API directly, using the Client ID and Client secret registration described above. Nothing is configured in Opti ID or its Admin Center.
+- Editors who sign in through Opti ID usually stop having local CMS passwords, so use the **Client credentials** connection type (see _Connecting_ below). It only needs the Base URL, Client ID, and Client secret — no CMS username or password.
+- Opti ID must not be your site's only authentication method (your developer should register it with `useAsDefault: false`, which is the standard setup), so the API login endpoint this app uses stays available.
+
+In short: Opti ID handles your editors, this app keeps using the classic API credentials — the two work side by side.
+
 ## Connecting
+
+The app offers two connection types. Pick the one that matches your Optimizely setup:
+
+- **Username & password** — the app signs in as a CMS user. Use this when your instance has local CMS accounts (ASP.NET Identity).
+- **Client credentials** — the app signs in as an application, with no user account. Use this when your editors log in through Opti ID or another SSO and local CMS passwords are not available. Your developer's registration must include the Content Management API scope (as in the example above); the `AllowResourceOwnerPasswordFlow` line is not needed for this type, but the CMS must grant the client editor permissions on the content you want to translate — ask your developer to map the Client ID to an editor role.
 
 1. Navigate to Apps and search for `Optimizely`.
 2. Click _Add connection_.
 3. Name the connection for future reference.
-4. Fill in the following fields:
-   `Base URL`: your Optimizely instance URL, for example `https://localhost:5000`
-   `Client ID`
-   `Client secret`
-   `Username`
-   `Password`
+4. Choose the connection type and fill in the fields:
+   - _Username & password_: `Base URL` (for example `https://localhost:5000`), `Client ID`, `Client secret`, `Username`, `Password`
+   - _Client credentials_: `Base URL`, `Client ID`, `Client secret`
 5. Save the connection.
 
 The app validates the connection by requesting an access token from `/api/episerver/connect/token`.

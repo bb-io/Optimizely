@@ -7,4 +7,5 @@ public static class CredsNames
     public const string ClientSecret = "client_secret";
     public const string Username = "username";
     public const string Password = "password";
+    public const string ConnectionType = "connection_type";
 }

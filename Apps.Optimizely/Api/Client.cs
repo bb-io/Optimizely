@@ -34,15 +34,7 @@ public class Client : BlackBirdRestClient
 
     public RestRequest CreateTokenRequest()
     {
-        var request = new RestRequest(ApiConstants.TokenResource, Method.Post);
-        request.AddHeader("Content-Type", "application/x-www-form-urlencoded");
-        request.AddParameter("grant_type", "password");
-        request.AddParameter("client_id", _creds.Get(CredsNames.ClientId).Value);
-        request.AddParameter("client_secret", _creds.Get(CredsNames.ClientSecret).Value);
-        request.AddParameter("scope", ApiConstants.Scope);
-        request.AddParameter("username", _creds.Get(CredsNames.Username).Value);
-        request.AddParameter("password", _creds.Get(CredsNames.Password).Value);
-
+        var request = BuildAuthorizationRequest();
         return request;
     }
 
@@ -171,5 +163,35 @@ public class Client : BlackBirdRestClient
 
         request.AddHeader("X-EPiServer-Language", locale);
         request.AddHeader("Accept-Language", locale);
+    }
+    
+    private RestRequest BuildAuthorizationRequest()
+    {
+        var request = new RestRequest(ApiConstants.TokenResource, Method.Post);
+        request.AddHeader("Content-Type", "application/x-www-form-urlencoded");
+        request.AddParameter("client_id", _creds.Get(CredsNames.ClientId).Value);
+        request.AddParameter("client_secret", _creds.Get(CredsNames.ClientSecret).Value);
+        
+        var connectionType = _creds.Get(CredsNames.ConnectionType).Value;
+        if (connectionType == ConnectionTypes.UserCredentials)
+        {
+            var username = _creds.Get(CredsNames.Username)?.Value;
+            var password = _creds.Get(CredsNames.Password)?.Value;
+            
+            if(!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+            {
+                request.AddParameter("username", username);
+                request.AddParameter("password", password);
+                request.AddParameter("grant_type", "password");
+                request.AddParameter("scope", ApiConstants.Scope);
+            }
+        }
+        else
+        {
+            request.AddParameter("grant_type", "client_credentials");
+            request.AddParameter("scope", ApiConstants.ScopeForClientCredentials);
+        }
+        
+        return request;
     }
 }
