@@ -288,7 +288,7 @@ public class ContentServiceTests
         string guidValue,
         List<string> contentTypes,
         string? status,
-        List<int> categories,
+        List<object> categories,
         DateTime? startPublish,
         List<string> languages,
         int? parentId = null)
