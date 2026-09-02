@@ -34,6 +34,23 @@ public class ConnectionDefinition : IConnectionDefinition
                 new(CredsNames.ClientId) { DisplayName = "Client ID" },
                 new(CredsNames.ClientSecret) { DisplayName = "Client secret", Sensitive = true }
             }
+        },
+        new()
+        {
+            Name = ConnectionTypes.ClientCredentialsWithScopes,
+            DisplayName = "Client credentials with custom scopes",
+            AuthenticationType = ConnectionAuthenticationType.Undefined,
+            ConnectionProperties = new List<ConnectionProperty>
+            {
+                new(CredsNames.BaseUrl) { DisplayName = "Base URL", Description = "Example: https://localhost:5000" },
+                new(CredsNames.ClientId) { DisplayName = "Client ID" },
+                new(CredsNames.ClientSecret) { DisplayName = "Client secret", Sensitive = true },
+                new(CredsNames.Scopes)
+                {
+                    DisplayName = "Scopes",
+                    Description = $"Scopes requested from Optimizely instead of the default ones. Example: {ApiConstants.Scope}"
+                }
+            }
         }
     };
 
