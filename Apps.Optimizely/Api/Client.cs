@@ -177,7 +177,7 @@ public class Client : BlackBirdRestClient
         {
             var username = _creds.Get(CredsNames.Username)?.Value;
             var password = _creds.Get(CredsNames.Password)?.Value;
-            
+
             if(!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
             {
                 request.AddParameter("username", username);
@@ -185,13 +185,24 @@ public class Client : BlackBirdRestClient
                 request.AddParameter("grant_type", "password");
                 request.AddParameter("scope", ApiConstants.Scope);
             }
+
+            return request;
         }
-        else
-        {
-            request.AddParameter("grant_type", "client_credentials");
-            request.AddParameter("scope", ApiConstants.ScopeForClientCredentials);
-        }
-        
+
+        request.AddParameter("grant_type", "client_credentials");
+        request.AddParameter("scope", ResolveClientCredentialsScope(connectionType));
+
         return request;
+    }
+
+    private string ResolveClientCredentialsScope(string connectionType)
+    {
+        var configuredScopes = connectionType == ConnectionTypes.ClientCredentialsWithScopes
+            ? _creds.Get(CredsNames.Scopes)?.Value
+            : null;
+
+        return string.IsNullOrWhiteSpace(configuredScopes)
+            ? ApiConstants.ScopeForClientCredentials
+            : ScopeHelper.Normalize(configuredScopes);
     }
 }

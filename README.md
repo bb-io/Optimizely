@@ -219,10 +219,11 @@ In short: Opti ID handles your editors, this app keeps using the classic API cre
 
 ## Connecting
 
-The app offers two connection types. Pick the one that matches your Optimizely setup:
+The app offers three connection types. Pick the one that matches your Optimizely setup:
 
 - **Username & password** — the app signs in as a CMS user. Use this when your instance has local CMS accounts (ASP.NET Identity).
 - **Client credentials** — the app signs in as an application, with no user account. Use this when your editors log in through Opti ID or another SSO and local CMS passwords are not available. Your developer's registration must include the Content Management API scope (as in the example above), and the OpenIddict handler from the "Extra step for the Client credentials connection type" section must be installed so the issued token carries editor roles — otherwise every content operation fails with `403 Forbidden`. The `AllowResourceOwnerPasswordFlow` line is not needed for this type.
+- **Client credentials with custom scopes** — the same application login as _Client credentials_, but you decide which scopes are requested from the token endpoint instead of the default `epi_content_management`. Use this when your Optimizely registration exposes the management API under different or additional scopes. Enter them separated by spaces or commas.
 
 1. Navigate to Apps and search for `Optimizely`.
 2. Click _Add connection_.
@@ -230,6 +231,7 @@ The app offers two connection types. Pick the one that matches your Optimizely s
 4. Choose the connection type and fill in the fields:
    - _Username & password_: `Base URL` (for example `https://localhost:5000`), `Client ID`, `Client secret`, `Username`, `Password`
    - _Client credentials_: `Base URL`, `Client ID`, `Client secret`
+   - _Client credentials with custom scopes_: `Base URL`, `Client ID`, `Client secret`, `Scopes`
 5. Save the connection.
 
 The app validates the connection by requesting an access token from `/api/episerver/connect/token`.
