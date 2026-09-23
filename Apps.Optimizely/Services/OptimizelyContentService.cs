@@ -1,9 +1,11 @@
+using System.Text.RegularExpressions;
 using Apps.Optimizely.Api;
 using Apps.Optimizely.Models.Dtos;
 using Apps.Optimizely.Models.Entities;
 using Apps.Optimizely.Models.Roundtrip;
 using Apps.Optimizely.Utils;
 using Blackbird.Applications.Sdk.Common.Exceptions;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Apps.Optimizely.Services;
@@ -223,6 +225,44 @@ public class OptimizelyContentService
         }
 
         return GetReferenceIds(content, referenceField).Any() ? fieldObject : null;
+    }
+
+    // PATCH keeps values of properties the API never exposes (e.g. "Component Margins" on blocks), so it is preferred.
+    // It ignores minimal validation, though, so a branch that already lacks such a required value (one created
+    // through the API) can only be updated by replacing the whole version, built from the branch's current content.
+    public async Task UpdateLanguageBranchAsync(string contentId, string locale, JObject patch, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _client.PatchContentAsync(contentId, locale, patch, cancellationToken);
+        }
+        catch (PluginApplicationException ex) when (RequiredPropertyErrorRegex.IsMatch(ex.Message))
+        {
+            var targetContent = await _client.GetContentAsync(contentId, locale, cancellationToken);
+            var contentGuid = targetContent.SelectToken("contentLink.guidValue")?.ToString()
+                              ?? throw new PluginMisconfigurationException($"Content '{contentId}' is missing contentLink.guidValue.");
+
+            await _client.PutContentAsync(contentGuid, BuildReplaceLanguageBranchPayload(targetContent, patch), cancellationToken);
+        }
+    }
+
+    private static readonly Regex RequiredPropertyErrorRegex = new("^Property '.+' is required\\.$", RegexOptions.Compiled);
+
+    private static JObject BuildReplaceLanguageBranchPayload(JObject targetContent, JObject patch)
+    {
+        var payload = (JObject)targetContent.DeepClone();
+        foreach (var propertyName in new[] { "existingLanguages", "masterLanguage", "url", "changed", "created", "saved", "startPublish", "stopPublish", "previewUrl", "editUrl" })
+        {
+            payload.Remove(propertyName);
+        }
+
+        payload.Merge(patch, new JsonMergeSettings
+        {
+            MergeArrayHandling = MergeArrayHandling.Replace,
+            MergeNullValueHandling = MergeNullValueHandling.Merge
+        });
+
+        return payload;
     }
 
     public bool HasLanguage(JObject content, string locale)
