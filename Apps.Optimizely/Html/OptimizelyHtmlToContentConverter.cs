@@ -1,5 +1,6 @@
 using System.Net;
 using Apps.Optimizely.Models.Roundtrip;
+using Apps.Optimizely.Utils;
 using HtmlAgilityPack;
 using Newtonsoft.Json.Linq;
 
@@ -50,12 +51,13 @@ public class OptimizelyHtmlToContentConverter
 
         var referenceEntries = (document.DocumentNode.SelectNodes("//div[@data-blackbird-state='reference-entry']")?.AsEnumerable()
                                ?? Enumerable.Empty<HtmlNode>())
-            .Select(node => new RoundtripReferenceEntryDocument
+            .Select(node => new { Node = node, OriginalJson = JObject.Parse(WebUtility.HtmlDecode(node.GetAttributeValue("data-original-json", "{}"))) })
+            .Select(entry => new RoundtripReferenceEntryDocument
             {
-                ReferenceField = node.GetAttributeValue("data-reference-field", string.Empty),
-                ContentId = node.GetAttributeValue("data-content-id", string.Empty),
-                OriginalJson = JObject.Parse(WebUtility.HtmlDecode(node.GetAttributeValue("data-original-json", "{}"))),
-                Fields = (node.SelectNodes("./div[@data-blackbird-state='field']")?.AsEnumerable()
+                ReferenceField = entry.Node.GetAttributeValue("data-reference-field", string.Empty),
+                ContentId = GetContentId(entry.Node, entry.OriginalJson),
+                OriginalJson = entry.OriginalJson,
+                Fields = (entry.Node.SelectNodes("./div[@data-blackbird-state='field']")?.AsEnumerable()
                           ?? Enumerable.Empty<HtmlNode>())
                     .Select(referenceFieldNode => new RoundtripField
                     {
@@ -69,16 +71,23 @@ public class OptimizelyHtmlToContentConverter
             .Where(referenceEntry => !string.IsNullOrWhiteSpace(referenceEntry.ContentId))
             .ToArray();
 
+        var originalJsonObject = JObject.Parse(originalJson);
         return new RoundtripContentDocument
         {
-            ContentId = rootNode.GetAttributeValue("data-content-id", string.Empty),
+            ContentId = GetContentId(rootNode, originalJsonObject),
             Locale = rootNode.GetAttributeValue("data-locale", string.Empty),
-            OriginalJson = JObject.Parse(originalJson),
+            OriginalJson = originalJsonObject,
             Fields = fields,
             ReferenceFields = referenceFields,
             ReferenceEntries = referenceEntries
         };
     }
+
+    // Files exported before provider-qualified IDs were introduced carry only the numeric ID in data-content-id,
+    // which points to a different item for non-CMS providers (e.g. "65" instead of "65__CatalogContent").
+    private static string GetContentId(HtmlNode node, JObject originalJson)
+        => ContentReferenceHelper.GetContentId(originalJson["contentLink"])
+           ?? node.GetAttributeValue("data-content-id", string.Empty);
 
     private static string GetFieldValue(HtmlNode node)
     {

@@ -127,6 +127,7 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
         if (service.HasLanguage(originalContent, input.Locale))
         {
             var patch = roundtripService.BuildPatch(roundtripDocument, language);
+            service.FillEmptyProperties(patch, originalContent, targetContent);
             await Client.PatchContentAsync(roundtripDocument.ContentId, input.Locale, patch);
         }
         else

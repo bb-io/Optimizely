@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.RegularExpressions;
 using Apps.Optimizely.Constants;
 using Apps.Optimizely.Models.Dtos;
 using Apps.Optimizely.Utils;
@@ -56,6 +57,7 @@ public class Client : BlackBirdRestClient
     {
         var request = await CreateAuthenticatedRequestAsync(string.Format(ApiConstants.ContentManagementResource, contentId), Method.Patch, cancellationToken);
         AddLanguageHeaders(request, locale);
+        AddMinimalValidationHeader(request);
         request.AddStringBody(patchBody.ToString(Formatting.None), ContentType.Json);
 
         await ExecuteWithErrorHandling(request);
@@ -63,11 +65,63 @@ public class Client : BlackBirdRestClient
 
     public async Task PutContentAsync(string contentGuid, JObject contentBody, CancellationToken cancellationToken = default)
     {
-        var request = await CreateAuthenticatedRequestAsync(string.Format(ApiConstants.ContentManagementResource, contentGuid), Method.Put, cancellationToken);
-        request.AddStringBody(contentBody.ToString(Formatting.None), ContentType.Json);
+        var body = (JObject)contentBody.DeepClone();
+        while (true)
+        {
+            var request = await CreateAuthenticatedRequestAsync(string.Format(ApiConstants.ContentManagementResource, contentGuid), Method.Put, cancellationToken);
+            AddMinimalValidationHeader(request);
+            request.AddStringBody(body.ToString(Formatting.None), ContentType.Json);
 
-        await ExecuteWithErrorHandling(request);
+            var response = await ExecuteAsync(request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            // The API gives no way to tell which properties are shared across languages, and rejects them
+            // one at a time when a new language branch is created. They are inherited from the master
+            // language anyway, so drop the rejected property and retry.
+            if (TryGetNonBranchSpecificProperty(response, body) is not { } rejectedProperty)
+            {
+                throw ConfigureErrorException(response);
+            }
+
+            rejectedProperty.Remove();
+        }
     }
+
+    private static JProperty? TryGetNonBranchSpecificProperty(RestResponse response, JObject body)
+    {
+        if (response.StatusCode != HttpStatusCode.BadRequest || string.IsNullOrWhiteSpace(response.Content))
+        {
+            return null;
+        }
+
+        JToken error;
+        try
+        {
+            error = JToken.Parse(response.Content);
+        }
+        catch (JsonReaderException)
+        {
+            return null;
+        }
+
+        if (error["code"]?.ToString() != "NonBranchSpecificProperty")
+        {
+            return null;
+        }
+
+        var match = Regex.Match(error["detail"]?.ToString() ?? string.Empty, "property '([^']+)'");
+        return match.Success
+            ? body.Properties().FirstOrDefault(property => property.Name.Equals(match.Groups[1].Value, StringComparison.OrdinalIgnoreCase))
+            : null;
+    }
+
+    // Some content types have required properties that the API never exposes (e.g. "Component Margins" on blocks),
+    // so a new or blank language branch can't pass complete validation no matter what is sent.
+    private static void AddMinimalValidationHeader(RestRequest request)
+        => request.AddHeader("x-epi-validation-mode", "minimal");
 
     public async Task<List<OptimizelyLanguageDto>> GetLanguagesAsync(CancellationToken cancellationToken = default)
     {
@@ -137,6 +191,7 @@ public class Client : BlackBirdRestClient
             return token["message"]?.ToString()
                    ?? token["error_description"]?.ToString()
                    ?? token["error"]?.ToString()
+                   ?? token["detail"]?.ToString()
                    ?? token["title"]?.ToString()
                    ?? response.Content;
         }

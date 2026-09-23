@@ -368,3 +368,4 @@ FodyWeavers.xsd
 
 */appsettings.json
 /.dotnet
+Tests.Optimizely/TestFiles/Output
