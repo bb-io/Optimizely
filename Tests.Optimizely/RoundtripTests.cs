@@ -52,6 +52,40 @@ public class RoundtripTests
     }
 
     [TestMethod]
+    public void Html_roundtrip_keeps_provider_qualified_content_ids()
+    {
+        var content = JObject.Parse("""
+            { "contentLink": { "id": 65, "providerName": "CatalogContent" }, "name": "S1932E" }
+            """);
+        var referenceContent = JObject.Parse("""
+            { "contentLink": { "id": 8712, "providerName": null }, "name": "Feature", "blackbirdReferenceField": "mainContentArea" }
+            """);
+        var state = new OptimizelyRoundtripService().CreateState(content, "en-GB", [], [referenceContent]);
+
+        var html = new OptimizelyContentToHtmlConverter().Convert(state);
+        var document = new OptimizelyHtmlToContentConverter().Convert(html);
+
+        Assert.AreEqual("65__CatalogContent", state.ContentId);
+        Assert.AreEqual("65__CatalogContent", document.ContentId);
+        Assert.AreEqual("8712", document.ReferenceEntries.Single().ContentId);
+    }
+
+    [TestMethod]
+    public void Html_to_content_resolves_provider_from_original_json_for_legacy_files()
+    {
+        var content = JObject.Parse("""
+            { "contentLink": { "id": 65, "providerName": "CatalogContent" }, "name": "S1932E" }
+            """);
+        var state = new OptimizelyRoundtripService().CreateState(content, "en-GB", []);
+        var html = new OptimizelyContentToHtmlConverter().Convert(state)
+            .Replace("data-content-id=\"65__CatalogContent\"", "data-content-id=\"65\"");
+
+        var document = new OptimizelyHtmlToContentConverter().Convert(html);
+
+        Assert.AreEqual("65__CatalogContent", document.ContentId);
+    }
+
+    [TestMethod]
     public void Html_roundtrip_preserves_selected_reference_fields_for_main_entry()
     {
         var content = JObject.Parse(SamplePayloads.Content);

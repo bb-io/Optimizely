@@ -51,7 +51,7 @@ public class OptimizelyRoundtripService
 
         return new RoundtripState
         {
-            ContentId = content.SelectToken("contentLink.id")?.ToString() ?? string.Empty,
+            ContentId = ContentReferenceHelper.GetContentId(content["contentLink"]) ?? string.Empty,
             Locale = locale,
             ContentName = content["name"]?.ToString(),
             OriginalJson = content,
@@ -61,7 +61,7 @@ public class OptimizelyRoundtripService
                 .Select(reference => new RoundtripReferenceState
                 {
                     ReferenceField = reference["blackbirdReferenceField"]?.ToString() ?? string.Empty,
-                    ContentId = reference.SelectToken("contentLink.id")?.ToString() ?? string.Empty,
+                    ContentId = ContentReferenceHelper.GetContentId(reference["contentLink"]) ?? string.Empty,
                     ContentName = reference["name"]?.ToString(),
                     OriginalJson = reference,
                     Fields = GetFields(reference, additionalPaths)

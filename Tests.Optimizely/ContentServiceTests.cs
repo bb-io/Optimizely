@@ -51,6 +51,45 @@ public class ContentServiceTests
     }
 
     [TestMethod]
+    public void Fill_empty_properties_copies_source_values_only_into_blank_target_properties()
+    {
+        var service = new OptimizelyContentService(null!);
+        var sourceContent = JObject.Parse("""
+        {
+          "status": "Published",
+          "sku": { "value": "S1932E", "propertyDataType": "PropertyLongString" },
+          "thumbnailImage": { "value": { "id": 58181, "providerName": "DIGI" }, "propertyDataType": "PropertyContentReference" },
+          "seoUri": { "value": "S1932E-en-gb.aspx", "propertyDataType": "PropertyLongString" },
+          "twitterTitle": { "value": "Source title", "propertyDataType": "PropertyLongString" },
+          "metaTitle": { "value": "Source meta", "propertyDataType": "PropertyLongString" },
+          "category": { "value": [1], "propertyDataType": "PropertyCategory" }
+        }
+        """);
+        var targetContent = JObject.Parse("""
+        {
+          "status": "CheckedOut",
+          "sku": { "value": "", "propertyDataType": "PropertyLongString" },
+          "thumbnailImage": { "value": null, "propertyDataType": "PropertyContentReference" },
+          "seoUri": { "value": null, "propertyDataType": "PropertyLongString" },
+          "twitterTitle": { "value": "Translated title", "propertyDataType": "PropertyLongString" },
+          "metaTitle": { "value": "", "propertyDataType": "PropertyLongString" },
+          "category": { "value": null, "propertyDataType": "PropertyCategory" }
+        }
+        """);
+        var patch = JObject.Parse("""{ "metaTitle": { "value": "Translated meta" } }""");
+
+        service.FillEmptyProperties(patch, sourceContent, targetContent);
+
+        Assert.AreEqual("S1932E", patch.SelectToken("sku.value")?.ToString());
+        Assert.AreEqual("58181", patch.SelectToken("thumbnailImage.value.id")?.ToString());
+        Assert.AreEqual("Translated meta", patch.SelectToken("metaTitle.value")?.ToString());
+        Assert.IsNull(patch["seoUri"]);
+        Assert.IsNull(patch["twitterTitle"]);
+        Assert.IsNull(patch["category"]);
+        Assert.IsNull(patch["status"]);
+    }
+
+    [TestMethod]
     public async Task Search_content_throws_for_missing_root_content_id()
     {
         var service = CreateSearchService();

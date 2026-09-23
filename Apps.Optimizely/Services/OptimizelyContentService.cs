@@ -2,6 +2,7 @@ using Apps.Optimizely.Api;
 using Apps.Optimizely.Models.Dtos;
 using Apps.Optimizely.Models.Entities;
 using Apps.Optimizely.Models.Roundtrip;
+using Apps.Optimizely.Utils;
 using Blackbird.Applications.Sdk.Common.Exceptions;
 using Newtonsoft.Json.Linq;
 
@@ -134,7 +135,7 @@ public class OptimizelyContentService
         }
 
         return references
-            .GroupBy(reference => reference.SelectToken("contentLink.id")?.ToString(), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(reference => ContentReferenceHelper.GetContentId(reference["contentLink"]), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToList();
     }
@@ -156,6 +157,41 @@ public class OptimizelyContentService
             .ToArray();
     }
 
+    // Commerce auto-creates blank language branches for every catalog language, so required culture-specific
+    // properties (e.g. SKU, Thumbnail Image) are empty there and the API rejects any PATCH. Like the CMS
+    // "Translate" command, carry over source values for properties the target branch has never been given.
+    public void FillEmptyProperties(JObject patch, JObject sourceContent, JObject targetContent)
+    {
+        foreach (var property in sourceContent.Properties())
+        {
+            if (patch[property.Name] is not null ||
+                IsExcludedFromCreatePayload(property.Name) ||
+                property.Name.Equals("seoUri", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (property.Value is not JObject sourceField ||
+                sourceField["propertyDataType"]?.ToString() == "PropertyCategory" ||
+                IsEmptyValue(sourceField["value"]))
+            {
+                continue;
+            }
+
+            if (targetContent[property.Name] is not JObject targetField || !IsEmptyValue(targetField["value"]))
+            {
+                continue;
+            }
+
+            patch[property.Name] = new JObject { ["value"] = sourceField["value"]!.DeepClone() };
+        }
+    }
+
+    private static bool IsEmptyValue(JToken? value)
+        => value is null ||
+           value.Type == JTokenType.Null ||
+           (value.Type == JTokenType.String && string.IsNullOrEmpty(value.Value<string>()));
+
     public IReadOnlyCollection<RoundtripReferenceField> FilterBranchSpecificReferenceFields(JObject targetContent, IEnumerable<RoundtripReferenceField> referenceFields)
     {
         return referenceFields
@@ -170,7 +206,7 @@ public class OptimizelyContentService
             return null;
         }
 
-        var contentId = content.SelectToken("contentLink.id")?.ToString();
+        var contentId = ContentReferenceHelper.GetContentId(content["contentLink"]);
         if (string.IsNullOrWhiteSpace(contentId))
         {
             return null;
@@ -261,9 +297,9 @@ public class OptimizelyContentService
     private static IEnumerable<string> GetReferenceIds(JObject content, string referenceField)
     {
         var value = content.SelectToken($"{referenceField}.value");
-        if (value is JObject obj && obj["id"] is not null)
+        if (value is JObject obj && ContentReferenceHelper.GetContentId(obj) is { } singleReferenceId)
         {
-            yield return obj["id"]!.ToString();
+            yield return singleReferenceId;
             yield break;
         }
 
@@ -274,7 +310,7 @@ public class OptimizelyContentService
 
         foreach (var item in array)
         {
-            var referenceId = item["contentLink"]?["id"]?.ToString() ?? item["id"]?.ToString();
+            var referenceId = ContentReferenceHelper.GetContentId(item["contentLink"]) ?? ContentReferenceHelper.GetContentId(item);
             if (!string.IsNullOrWhiteSpace(referenceId))
             {
                 yield return referenceId;
