@@ -128,7 +128,7 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
         {
             var patch = roundtripService.BuildPatch(roundtripDocument, language);
             service.FillEmptyProperties(patch, originalContent, targetContent);
-            await Client.PatchContentAsync(roundtripDocument.ContentId, input.Locale, patch);
+            await service.UpdateLanguageBranchAsync(roundtripDocument.ContentId, input.Locale, patch);
         }
         else
         {
@@ -154,7 +154,7 @@ public class ContentActions(InvocationContext invocationContext, IFileManagement
                 if (service.HasLanguage(referenceEntry.OriginalJson, input.Locale))
                 {
                     var referencePatch = roundtripService.BuildPatch(referenceDocument, referenceLanguage);
-                    await Client.PatchContentAsync(referenceEntry.ContentId, input.Locale, referencePatch);
+                    await service.UpdateLanguageBranchAsync(referenceEntry.ContentId, input.Locale, referencePatch);
                 }
                 else
                 {
