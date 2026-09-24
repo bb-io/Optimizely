@@ -64,34 +64,16 @@ public class OptimizelyFieldDiscoveryService
             .ToArray();
     }
 
-    public IReadOnlyCollection<string> ValidateReferenceFields(JObject content, IEnumerable<string>? referenceFields)
-        => ValidateReferenceFields(content, null, referenceFields);
-
-    public IReadOnlyCollection<string> ValidateReferenceFields(JObject content, JObject? fallbackContent, IEnumerable<string>? referenceFields)
+    public IReadOnlyCollection<string> NormalizeReferenceFields(IEnumerable<string>? referenceFields)
     {
-        var validatedFields = new List<string>();
-        foreach (var referenceField in referenceFields ?? [])
-        {
-            if (string.IsNullOrWhiteSpace(referenceField))
-            {
-                continue;
-            }
-
-            var normalizedField = NormalizeReferenceField(referenceField);
-            if (!HasReferenceField(content, normalizedField) &&
-                !HasReferenceField(fallbackContent, normalizedField))
-            {
-                throw new Blackbird.Applications.Sdk.Common.Exceptions.PluginMisconfigurationException(
-                    $"Reference field '{referenceField}' was not found in the content JSON. Please select a valid reference field.");
-            }
-
-            validatedFields.Add(normalizedField);
-        }
-
-        return validatedFields.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return (referenceFields ?? [])
+            .Where(referenceField => !string.IsNullOrWhiteSpace(referenceField))
+            .Select(NormalizeReferenceField)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
-    private static bool HasReferenceField(JObject? content, string normalizedField)
+    public bool HasReferenceField(JObject? content, string normalizedField)
     {
         return content is not null &&
                JsonPathHelper.TryGetValue(content, $"{normalizedField}.value", out var value) &&

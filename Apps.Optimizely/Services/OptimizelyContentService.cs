@@ -110,53 +110,107 @@ public class OptimizelyContentService
         };
     }
 
+    // Selected reference fields are followed on referenced entries too, so nested blocks (e.g. the tabs of a
+    // tabbed block) are exported when their field is selected as well. Each entry is visited once, which also
+    // guards against cycles such as a product referencing itself.
     public async Task<List<JObject>> GetReferenceContentsAsync(JObject content, IEnumerable<string>? referenceFields, string? locale = null, CancellationToken cancellationToken = default)
     {
         var fieldDiscoveryService = new OptimizelyFieldDiscoveryService();
-        var fallbackContent = await GetFallbackReferenceSourceContentAsync(content, referenceFields, cancellationToken);
-        var validatedFields = fieldDiscoveryService.ValidateReferenceFields(content, fallbackContent, referenceFields);
+        var selectedFields = fieldDiscoveryService.NormalizeReferenceFields(referenceFields);
+        var fallbackContent = await GetFallbackReferenceSourceContentAsync(content, selectedFields, cancellationToken);
 
         var references = new List<JObject>();
-        foreach (var referenceField in validatedFields)
-        {
-            var referenceIds = GetReferenceIds(content, referenceField).ToList();
-            if (referenceIds.Count == 0 && fallbackContent is not null)
-            {
-                referenceIds = GetReferenceIds(fallbackContent, referenceField).ToList();
-            }
+        var foundFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visitedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ContentReferenceHelper.GetContentId(content["contentLink"]) ?? string.Empty };
+        var pending = new Queue<(JObject Content, JObject? Fallback)>();
+        pending.Enqueue((content, fallbackContent));
 
-            foreach (var referenceId in referenceIds)
+        while (pending.TryDequeue(out var entry))
+        {
+            foreach (var referenceField in selectedFields)
             {
-                var referenceSourceContent = await _client.GetContentAsync(referenceId, null, cancellationToken);
-                var referenceContent = !string.IsNullOrWhiteSpace(locale) && HasLanguage(referenceSourceContent, locale)
-                    ? await _client.GetContentAsync(referenceId, locale, cancellationToken)
-                    : referenceSourceContent;
-                referenceContent["blackbirdReferenceField"] = referenceField;
-                references.Add(referenceContent);
+                var source = fieldDiscoveryService.HasReferenceField(entry.Content, referenceField) ? entry.Content
+                    : fieldDiscoveryService.HasReferenceField(entry.Fallback, referenceField) ? entry.Fallback
+                    : null;
+                if (source is null)
+                {
+                    continue;
+                }
+
+                foundFields.Add(referenceField);
+                foreach (var referenceId in GetReferenceIds(source, referenceField).Where(visitedIds.Add).ToArray())
+                {
+                    var referenceContent = await GetReferenceContentAsync(referenceId, locale, cancellationToken);
+                    referenceContent["blackbirdReferenceField"] = referenceField;
+                    references.Add(referenceContent);
+                    pending.Enqueue((referenceContent, null));
+                }
             }
         }
 
-        return references
-            .GroupBy(reference => ContentReferenceHelper.GetContentId(reference["contentLink"]), StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
-            .ToList();
+        var missingField = selectedFields.FirstOrDefault(field => !foundFields.Contains(field));
+        if (missingField is not null)
+        {
+            throw new PluginMisconfigurationException(
+                $"Reference field '{missingField}' was not found in the content or its referenced entries. Please select a valid reference field.");
+        }
+
+        return references;
     }
 
+    private async Task<JObject> GetReferenceContentAsync(string referenceId, string? locale, CancellationToken cancellationToken)
+    {
+        var referenceSourceContent = await _client.GetContentAsync(referenceId, null, cancellationToken);
+        return !string.IsNullOrWhiteSpace(locale) && HasLanguage(referenceSourceContent, locale)
+            ? await _client.GetContentAsync(referenceId, locale, cancellationToken)
+            : referenceSourceContent;
+    }
+
+    // Only reference fields of the main entry are carried over; fields selected for nested entries are
+    // resolved by GetReferenceContentsAsync.
     public async Task<IReadOnlyCollection<RoundtripReferenceField>> GetReferenceFieldPayloadsAsync(JObject content, IEnumerable<string>? referenceFields, CancellationToken cancellationToken = default)
     {
-        var fieldDiscoveryService = new OptimizelyFieldDiscoveryService();
-        var fallbackContent = await GetFallbackReferenceSourceContentAsync(content, referenceFields, cancellationToken);
-        var validatedFields = fieldDiscoveryService.ValidateReferenceFields(content, fallbackContent, referenceFields);
+        var selectedFields = new OptimizelyFieldDiscoveryService().NormalizeReferenceFields(referenceFields);
+        var fallbackContent = await GetFallbackReferenceSourceContentAsync(content, selectedFields, cancellationToken);
 
-        return validatedFields
+        return selectedFields
+            .Select(referenceField => (Path: referenceField, Value: GetReferenceFieldValue(content, referenceField) ?? GetReferenceFieldValue(fallbackContent, referenceField)))
+            .Where(referenceField => referenceField.Value is not null)
             .Select(referenceField => new RoundtripReferenceField
             {
-                Path = referenceField,
-                Value = GetReferenceFieldValue(content, referenceField)?.DeepClone() as JObject
-                        ?? GetReferenceFieldValue(fallbackContent, referenceField)?.DeepClone() as JObject
-                        ?? throw new InvalidOperationException($"Could not resolve reference field '{referenceField}'.")
+                Path = referenceField.Path,
+                Value = (JObject)referenceField.Value!.DeepClone()
             })
             .ToArray();
+    }
+
+    // Lists reference fields of the content and of the blocks in its content areas, so that fields of nested
+    // blocks (e.g. "contentTabs") can be selected too. Other references (images, links) are not expanded,
+    // as their fields (e.g. image renditions) are never containers of translatable blocks.
+    public async Task<IReadOnlyCollection<string>> GetReferenceFieldPathsAsync(JObject content, CancellationToken cancellationToken = default)
+    {
+        var fieldDiscoveryService = new OptimizelyFieldDiscoveryService();
+        var fieldPaths = new HashSet<string>(fieldDiscoveryService.GetReferenceFieldPaths(content), StringComparer.OrdinalIgnoreCase);
+        var referenceIds = fieldPaths
+            .Where(path => content[path]?["propertyDataType"]?.ToString() == "PropertyContentArea")
+            .SelectMany(path => GetReferenceIds(content, path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        foreach (var referenceId in referenceIds)
+        {
+            try
+            {
+                var referenceContent = await _client.GetContentAsync(referenceId, null, cancellationToken);
+                fieldPaths.UnionWith(fieldDiscoveryService.GetReferenceFieldPaths(referenceContent));
+            }
+            catch (PluginApplicationException)
+            {
+                // A broken reference (e.g. deleted content) should not hide the remaining fields.
+            }
+        }
+
+        return fieldPaths.OrderBy(path => path).ToArray();
     }
 
     // Commerce auto-creates blank language branches for every catalog language, so required culture-specific
