@@ -17,10 +17,9 @@ public class ReferenceFieldDataHandler(
     {
         var contentId = GetContentId(contentRequest, uploadContentRequest);
         var service = new OptimizelyContentService(Client);
-        var fieldDiscoveryService = new OptimizelyFieldDiscoveryService();
 
         var content = await service.GetContentAsync(contentId, cancellationToken: cancellationToken);
-        var fieldPaths = fieldDiscoveryService.GetReferenceFieldPaths(content);
+        var fieldPaths = await service.GetReferenceFieldPathsAsync(content, cancellationToken);
 
         return fieldPaths
             .Where(path => string.IsNullOrWhiteSpace(context.SearchString) ||

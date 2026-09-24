@@ -10,9 +10,11 @@ public class OptimizelyRoundtripService
     private static readonly string[] DefaultPaths = ["name", "metaTitle.value"];
 
     public IReadOnlyCollection<string> GetRequestedPaths(IEnumerable<string>? additionalPaths)
+        => NormalizePaths(DefaultPaths.Concat(additionalPaths ?? []));
+
+    private static IReadOnlyCollection<string> NormalizePaths(IEnumerable<string>? paths)
     {
-        return DefaultPaths
-            .Concat(additionalPaths ?? [])
+        return (paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => path.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -31,23 +33,9 @@ public class OptimizelyRoundtripService
 
     public RoundtripState CreateState(JObject content, string locale, IEnumerable<string>? additionalPaths, IEnumerable<RoundtripReferenceField> referenceFields, IEnumerable<JObject> references)
     {
-        var fields = new List<RoundtripField>();
-        foreach (var path in GetRequestedPaths(additionalPaths))
-        {
-            if (!JsonPathHelper.TryGetValue(content, path, out var value) ||
-                value is null ||
-                !IsSupportedFieldValue(value))
-            {
-                continue;
-            }
-
-            fields.Add(new RoundtripField
-            {
-                Path = path,
-                Value = SerializeFieldValue(value),
-                ValueType = GetFieldValueType(value)
-            });
-        }
+        // Default paths (name, meta title) belong to the main entry only: for referenced blocks "name" is
+        // an internal editor label, so only the explicitly selected fields are exported.
+        var referencePaths = NormalizePaths(additionalPaths);
 
         return new RoundtripState
         {
@@ -55,7 +43,7 @@ public class OptimizelyRoundtripService
             Locale = locale,
             ContentName = content["name"]?.ToString(),
             OriginalJson = content,
-            Fields = fields,
+            Fields = GetFields(content, GetRequestedPaths(additionalPaths)),
             ReferenceFields = referenceFields.ToArray(),
             ReferenceEntries = references
                 .Select(reference => new RoundtripReferenceState
@@ -64,7 +52,7 @@ public class OptimizelyRoundtripService
                     ContentId = ContentReferenceHelper.GetContentId(reference["contentLink"]) ?? string.Empty,
                     ContentName = reference["name"]?.ToString(),
                     OriginalJson = reference,
-                    Fields = GetFields(reference, additionalPaths)
+                    Fields = GetFields(reference, referencePaths)
                 })
                 .ToArray()
         };
@@ -81,6 +69,13 @@ public class OptimizelyRoundtripService
         foreach (var referenceField in document.ReferenceFields)
         {
             patch[referenceField.Path] = CreateReferenceFieldPatchValue(referenceField.Value);
+        }
+
+        // "name" of a referenced block is an editor label that isn't exported for translation, so the target
+        // branch mirrors the source instead of keeping a stale or mistranslated label.
+        if (patch["name"] is null && document.OriginalJson["name"] is JValue sourceName)
+        {
+            patch["name"] = sourceName.DeepClone();
         }
 
         patch["language"] = JObject.FromObject(new
@@ -123,10 +118,10 @@ public class OptimizelyRoundtripService
         }
     }
 
-    private IReadOnlyCollection<RoundtripField> GetFields(JObject content, IEnumerable<string>? additionalPaths)
+    private static IReadOnlyCollection<RoundtripField> GetFields(JObject content, IEnumerable<string> paths)
     {
         var fields = new List<RoundtripField>();
-        foreach (var path in GetRequestedPaths(additionalPaths))
+        foreach (var path in paths)
         {
             if (!JsonPathHelper.TryGetValue(content, path, out var value) ||
                 value is null ||
